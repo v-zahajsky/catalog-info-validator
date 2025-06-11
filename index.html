@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Backstage Catalog Info Validator</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- js-yaml library to parse YAML -->
+    <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+    <!-- Ajv JSON schema validator (browser bundle) -->
+    <script src="https://cdn.jsdelivr.net/npm/ajv@8.11.0/dist/ajv.bundle.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 flex items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-4xl mx-auto bg-gray-800 shadow-2xl rounded-xl p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-white">Backstage `catalog-info.yaml` Validator</h1>
+            <p class="text-gray-400 mt-2">Paste your file contents below to validate it against the basic Backstage catalog schema.</p>
+        </header>
+
+        <main>
+            <!-- Input area for YAML content -->
+            <div class="mb-6">
+                <label for="yamlInput" class="block text-sm font-medium text-gray-300 mb-2">YAML Content:</label>
+                <textarea id="yamlInput" rows="15"
+                    class="w-full p-4 bg-gray-900 border-2 border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-gray-200 font-mono text-sm"
+                    placeholder="apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: my-awesome-service
+  description: A really awesome service
+spec:
+  type: service
+  lifecycle: experimental
+  owner: user:default/guest"></textarea>
+            </div>
+
+            <!-- Action button -->
+            <div class="text-center">
+                <button id="validateBtn"
+                    class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg shadow-lg transform hover:scale-105 transition-all duration-300">
+                    Validate
+                </button>
+            </div>
+
+            <!-- Result area -->
+            <div id="resultArea" class="mt-8"></div>
+        </main>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            
+            // --- 1. SETUP ---
+
+            // --- DOM Element References ---
+            const dom = {
+                yamlInput: document.getElementById('yamlInput'),
+                validateBtn: document.getElementById('validateBtn'),
+                resultArea: document.getElementById('resultArea'),
+            };
+
+            // --- JSON Schema for catalog-info.yaml ---
+            const catalogInfoSchema = {
+                type: 'object',
+                properties: {
+                    apiVersion: { type: 'string', pattern: '^backstage\\.io/v1(alpha1|beta[12])?$' },
+                    kind: { type: 'string', enum: ['Component', 'API', 'Group', 'User', 'Resource', 'System', 'Domain', 'Location', 'Template'] },
+                    metadata: {
+                        type: 'object',
+                        properties: { name: { type: 'string', minLength: 1 }, description: { type: 'string' } },
+                        required: ['name']
+                    },
+                    spec: {
+                        type: 'object',
+                        properties: { type: { type: 'string' }, lifecycle: { type: 'string' }, owner: { type: 'string' } },
+                        required: ['type', 'lifecycle', 'owner']
+                    }
+                },
+                required: ['apiVersion', 'kind', 'metadata', 'spec']
+            };
+
+            // --- Validator Initialization ---
+            let validateFunction;
+            try {
+                const AjvClass = window.Ajv?.default ?? window.Ajv;
+                if (!AjvClass) throw new Error('AJV library not loaded.');
+                const ajv = new AjvClass();
+                validateFunction = ajv.compile(catalogInfoSchema);
+            } catch (e) {
+                disableAppOnError('Initialization Error', 'Could not load the validation library.');
+                return; // Stop execution
+            }
+            
+            // --- Event Listeners ---
+            dom.validateBtn.addEventListener('click', handleValidation);
+
+
+            // --- 2. VALIDATION LOGIC ---
+
+            /**
+             * Handles the main validation process when the user clicks the "Validate" button.
+             */
+            function handleValidation() {
+                resetUIState();
+                const yamlString = dom.yamlInput.value;
+
+                if (!yamlString.trim()) {
+                    displayResult('error', 'Input is empty', 'Please paste your YAML content.');
+                    return;
+                }
+
+                try {
+                    const data = jsyaml.load(yamlString);
+                    if (typeof data !== 'object' || data === null) {
+                       throw new Error("YAML does not represent a valid object.");
+                    }
+
+                    const isValid = validateFunction(data);
+
+                    if (isValid) {
+                        displayResult('success', 'Validation Successful!', 'The YAML content conforms to the schema.');
+                    } else {
+                        const errorMessages = formatValidationErrors(validateFunction.errors);
+                        displayResult('error', 'Validation Failed!', errorMessages);
+                    }
+                } catch (e) {
+                    displayResult('error', 'YAML Parsing Error!', `The provided text is not valid YAML. <br><br><strong>Details:</strong> ${e.message}`);
+                }
+            }
+            
+            // --- 3. UI HELPERS ---
+
+            /**
+             * Resets the result areas.
+             */
+            function resetUIState() {
+                dom.resultArea.innerHTML = '';
+            }
+
+            /**
+             * Displays a result message (success or error) in the main result area.
+             * @param {'success'|'error'} type The type of result.
+             * @param {string} title The title of the message.
+             * @param {string} message The content of the message.
+             */
+            function displayResult(type, title, message) {
+                const isError = type === 'error';
+                const bgColor = isError ? 'bg-red-900' : 'bg-green-900';
+                const textColor = isError ? 'text-red-300' : 'text-green-300';
+                const contentColor = isError ? 'text-red-200' : 'text-green-200';
+
+                dom.resultArea.innerHTML = `
+                    <div class="p-6 rounded-lg ${bgColor}">
+                        <h3 class="font-bold text-lg ${textColor}">${title}</h3>
+                        <div class="mt-2 ${contentColor}">${message}</div>
+                    </div>`;
+            }
+            
+            /**
+             * Disables the app and shows a critical error.
+             */
+            function disableAppOnError(title, message) {
+                displayResult('error', title, message);
+                dom.validateBtn.disabled = true;
+                dom.validateBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                dom.yamlInput.disabled = true;
+            }
+            
+            /**
+             * Formats an array of Ajv validation errors into an HTML list.
+             */
+            function formatValidationErrors(errors) {
+                const errorItems = errors.map(e => `<li><strong>Path:</strong> <code class="bg-gray-700 px-1 rounded">${e.instancePath || '/'}</code> - ${e.message}</li>`);
+                return `<ul class="list-disc list-inside mt-2 space-y-1 font-mono text-sm">${errorItems.join('')}</ul>`;
+            }
+        });
+    </script>
+</body>
+</html>
