@@ -6,10 +6,6 @@
     <title>Backstage Catalog Info Validator</title>
     <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- js-yaml library to parse YAML -->
-    <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
-    <!-- Ajv JSON schema validator (browser bundle) -->
-    <script src="https://cdn.jsdelivr.net/npm/ajv@8.11.0/dist/ajv.bundle.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -57,138 +53,116 @@ spec:
         </main>
     </div>
 
-    <script>
-        // Use window.onload to ensure all external scripts are loaded before our code runs.
-        window.onload = function() {
-            
-            // --- 1. SETUP ---
+    <!-- 
+      Switching to a module script.
+      This is a modern approach that ensures dependencies are loaded before the script runs,
+      eliminating the race conditions we were experiencing.
+    -->
+    <script type="module">
+        // --- 1. IMPORT DEPENDENCIES ---
+        // We now explicitly import our libraries from the CDN.
+        // The script will not execute until these are successfully loaded.
+        import Ajv from 'https://cdn.jsdelivr.net/npm/ajv@8.17.1/+esm';
+        import jsyaml from 'https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/+esm';
 
-            // --- DOM Element References ---
-            const dom = {
-                yamlInput: document.getElementById('yamlInput'),
-                validateBtn: document.getElementById('validateBtn'),
-                resultArea: document.getElementById('resultArea'),
-            };
-
-            // --- JSON Schema for catalog-info.yaml ---
-            const catalogInfoSchema = {
-                type: 'object',
-                properties: {
-                    apiVersion: { type: 'string', pattern: '^backstage\\.io/v1(alpha1|beta[12])?$' },
-                    kind: { type: 'string', enum: ['Component', 'API', 'Group', 'User', 'Resource', 'System', 'Domain', 'Location', 'Template'] },
-                    metadata: {
-                        type: 'object',
-                        properties: { name: { type: 'string', minLength: 1 }, description: { type: 'string' } },
-                        required: ['name']
-                    },
-                    spec: {
-                        type: 'object',
-                        properties: { type: { type: 'string' }, lifecycle: { type: 'string' }, owner: { type: 'string' } },
-                        required: ['type', 'lifecycle', 'owner']
-                    }
-                },
-                required: ['apiVersion', 'kind', 'metadata', 'spec']
-            };
-
-            // --- Validator Initialization ---
-            let validateFunction;
-            try {
-                // Since window.onload has fired, window.Ajv should now be available.
-                const AjvClass = window.Ajv?.default ?? window.Ajv;
-                if (!AjvClass) {
-                    // This error should now be much less likely to occur.
-                    throw new Error('AJV library failed to load.');
-                }
-                const ajv = new AjvClass();
-                validateFunction = ajv.compile(catalogInfoSchema);
-            } catch (e) {
-                disableAppOnError('Initialization Error', 'Could not load the validation library. Please check your network connection or ad-blocker.');
-                return; // Stop execution
-            }
-            
-            // --- Event Listeners ---
-            dom.validateBtn.addEventListener('click', handleValidation);
-
-
-            // --- 2. VALIDATION LOGIC ---
-
-            /**
-             * Handles the main validation process when the user clicks the "Validate" button.
-             */
-            function handleValidation() {
-                resetUIState();
-                const yamlString = dom.yamlInput.value;
-
-                if (!yamlString.trim()) {
-                    displayResult('error', 'Input is empty', 'Please paste your YAML content.');
-                    return;
-                }
-
-                try {
-                    const data = jsyaml.load(yamlString);
-                    if (typeof data !== 'object' || data === null) {
-                       throw new Error("YAML does not represent a valid object.");
-                    }
-
-                    const isValid = validateFunction(data);
-
-                    if (isValid) {
-                        displayResult('success', 'Validation Successful!', 'The YAML content conforms to the schema.');
-                    } else {
-                        const errorMessages = formatValidationErrors(validateFunction.errors);
-                        displayResult('error', 'Validation Failed!', errorMessages);
-                    }
-                } catch (e) {
-                    displayResult('error', 'YAML Parsing Error!', `The provided text is not valid YAML. <br><br><strong>Details:</strong> ${e.message}`);
-                }
-            }
-            
-            // --- 3. UI HELPERS ---
-
-            /**
-             * Resets the result areas.
-             */
-            function resetUIState() {
-                dom.resultArea.innerHTML = '';
-            }
-
-            /**
-             * Displays a result message (success or error) in the main result area.
-             * @param {'success'|'error'} type The type of result.
-             * @param {string} title The title of the message.
-             * @param {string} message The content of the message.
-             */
-            function displayResult(type, title, message) {
-                const isError = type === 'error';
-                const bgColor = isError ? 'bg-red-900' : 'bg-green-900';
-                const textColor = isError ? 'text-red-300' : 'text-green-300';
-                const contentColor = isError ? 'text-red-200' : 'text-green-200';
-
-                dom.resultArea.innerHTML = `
-                    <div class="p-6 rounded-lg ${bgColor}">
-                        <h3 class="font-bold text-lg ${textColor}">${title}</h3>
-                        <div class="mt-2 ${contentColor}">${message}</div>
-                    </div>`;
-            }
-            
-            /**
-             * Disables the app and shows a critical error.
-             */
-            function disableAppOnError(title, message) {
-                displayResult('error', title, message);
-                dom.validateBtn.disabled = true;
-                dom.validateBtn.classList.add('opacity-50', 'cursor-not-allowed');
-                dom.yamlInput.disabled = true;
-            }
-            
-            /**
-             * Formats an array of Ajv validation errors into an HTML list.
-             */
-            function formatValidationErrors(errors) {
-                const errorItems = errors.map(e => `<li><strong>Path:</strong> <code class="bg-gray-700 px-1 rounded">${e.instancePath || '/'}</code> - ${e.message}</li>`);
-                return `<ul class="list-disc list-inside mt-2 space-y-1 font-mono text-sm">${errorItems.join('')}</ul>`;
-            }
+        // --- 2. SETUP ---
+        
+        // --- DOM Element References ---
+        const dom = {
+            yamlInput: document.getElementById('yamlInput'),
+            validateBtn: document.getElementById('validateBtn'),
+            resultArea: document.getElementById('resultArea'),
         };
+        
+        // --- JSON Schema for catalog-info.yaml ---
+        const catalogInfoSchema = {
+            type: 'object',
+            properties: {
+                apiVersion: { type: 'string', pattern: '^backstage\\.io/v1(alpha1|beta[12])?$' },
+                kind: { type: 'string', enum: ['Component', 'API', 'Group', 'User', 'Resource', 'System', 'Domain', 'Location', 'Template'] },
+                metadata: {
+                    type: 'object',
+                    properties: { name: { type: 'string', minLength: 1 }, description: { type: 'string' } },
+                    required: ['name']
+                },
+                spec: {
+                    type: 'object',
+                    properties: { type: { type: 'string' }, lifecycle: { type: 'string' }, owner: { type: 'string' } },
+                    required: ['type', 'lifecycle', 'owner']
+                }
+            },
+            required: ['apiVersion', 'kind', 'metadata', 'spec']
+        };
+
+        // --- Validator Initialization ---
+        // This is now safe because the import ensures Ajv is defined.
+        const ajv = new Ajv();
+        const validateFunction = ajv.compile(catalogInfoSchema);
+        
+        // --- Event Listener ---
+        dom.validateBtn.addEventListener('click', () => handleValidation(validateFunction));
+
+
+        // --- 3. VALIDATION LOGIC ---
+
+        /**
+         * Handles the main validation logic.
+         * @param {Function} validateFunction The compiled validation function from Ajv.
+         */
+        function handleValidation(validateFunction) {
+            dom.resultArea.innerHTML = ''; // Reset UI
+            const yamlString = dom.yamlInput.value;
+
+            if (!yamlString.trim()) {
+                displayResult('error', 'Input is empty', 'Please paste your YAML content.');
+                return;
+            }
+
+            try {
+                const data = jsyaml.load(yamlString);
+                if (typeof data !== 'object' || data === null) {
+                   throw new Error("YAML does not represent a valid object.");
+                }
+
+                const isValid = validateFunction(data);
+
+                if (isValid) {
+                    displayResult('success', 'Validation Successful!', 'The YAML content conforms to the schema.');
+                } else {
+                    const errorMessages = formatValidationErrors(validateFunction.errors);
+                    displayResult('error', 'Validation Failed!', errorMessages);
+                }
+            } catch (e) {
+                displayResult('error', 'YAML Parsing Error!', `The provided text is not valid YAML. <br><br><strong>Details:</strong> ${e.message}`);
+            }
+        }
+
+        // --- 4. UI HELPERS ---
+
+        /**
+         * Displays a result message (success or error) in the main result area.
+         */
+        function displayResult(type, title, message) {
+            const isError = type === 'error';
+            const bgColor = isError ? 'bg-red-900' : 'bg-green-900';
+            const textColor = isError ? 'text-red-300' : 'text-green-300';
+            const contentColor = isError ? 'text-red-200' : 'text-green-200';
+
+            dom.resultArea.innerHTML = `
+                <div class="p-6 rounded-lg ${bgColor}">
+                    <h3 class="font-bold text-lg ${textColor}">${title}</h3>
+                    <div class="mt-2 ${contentColor}">${message}</div>
+                </div>`;
+        }
+
+        /**
+         * Formats an array of Ajv validation errors into an HTML list.
+         */
+        function formatValidationErrors(errors) {
+            const errorItems = errors.map(e => `<li><strong>Path:</strong> <code class="bg-gray-700 px-1 rounded">${e.instancePath || '/'}</code> - ${e.message}</li>`);
+            return `<ul class="list-disc list-inside mt-2 space-y-1 font-mono text-sm">${errorItems.join('')}</ul>`;
+        }
+
     </script>
 </body>
 </html>
