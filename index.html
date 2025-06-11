@@ -58,7 +58,8 @@ spec:
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', () => {
+        // Use window.onload to ensure all external scripts are loaded before our code runs.
+        window.onload = function() {
             
             // --- 1. SETUP ---
 
@@ -92,12 +93,16 @@ spec:
             // --- Validator Initialization ---
             let validateFunction;
             try {
+                // Since window.onload has fired, window.Ajv should now be available.
                 const AjvClass = window.Ajv?.default ?? window.Ajv;
-                if (!AjvClass) throw new Error('AJV library not loaded.');
+                if (!AjvClass) {
+                    // This error should now be much less likely to occur.
+                    throw new Error('AJV library failed to load.');
+                }
                 const ajv = new AjvClass();
                 validateFunction = ajv.compile(catalogInfoSchema);
             } catch (e) {
-                disableAppOnError('Initialization Error', 'Could not load the validation library.');
+                disableAppOnError('Initialization Error', 'Could not load the validation library. Please check your network connection or ad-blocker.');
                 return; // Stop execution
             }
             
@@ -183,7 +188,7 @@ spec:
                 const errorItems = errors.map(e => `<li><strong>Path:</strong> <code class="bg-gray-700 px-1 rounded">${e.instancePath || '/'}</code> - ${e.message}</li>`);
                 return `<ul class="list-disc list-inside mt-2 space-y-1 font-mono text-sm">${errorItems.join('')}</ul>`;
             }
-        });
+        };
     </script>
 </body>
 </html>
